@@ -1,0 +1,74 @@
+# =========================
+# Build artifacts
+# =========================
+.idea/
+build/
+Debug/
+Release/
+*.o
+*.d
+*.su
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.axf
+
+# =========================
+# CMake
+# =========================
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# =========================
+# STM32CubeIDE
+# =========================
+.settings/
+.project
+.cproject
+*.launch
+
+# =========================
+# VSCode
+# =========================
+.vscode/
+
+# =========================
+# Keil
+# =========================
+*.uvproj*
+*.uvopt*
+*.uvgui*
+Objects/
+Listings/
+
+# =========================
+# IAR
+# =========================
+settings/
+*.ewd
+*.ewp
+*.eww
+*.dep
+
+# =========================
+# OS junk
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Backup files
+# =========================
+*~
+*.bak
+*.swp
