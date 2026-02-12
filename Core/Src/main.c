@@ -37,6 +37,7 @@
 
 #define W_REGISTER 0x20
 #define R_REGISTER 0X00
+#define STATUS_REGISTER 0x07
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -77,6 +78,7 @@ nRF24_Operation_Status read_reg(uint8_t reg);
 void init_config();
 nRF24_Operation_Status read_and_modify(uint8_t reg, uint8_t mask, uint8_t value);
 nRF24_StatusTypeDef process_status(uint8_t reg);
+nRF24_Operation_Status clear_status(uint8_t mask);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -147,6 +149,28 @@ nRF24_StatusTypeDef process_status(const uint8_t reg) {
     (reg >> 4) & 0x01,
     (reg >> 1) & 0x07,
     (reg >> 0) & 0x01,
+  };
+  return status;
+}
+
+nRF24_Operation_Status clear_status(const uint8_t mask) {
+  const uint8_t allowed_mask = 0b01110000;
+
+  if ((mask & ~allowed_mask) == 0) {
+    const uint8_t data[2] = {(W_REGISTER | (STATUS_REGISTER & 0x1F)), mask};
+    CS_LOW();
+    const HAL_StatusTypeDef HAL_Result = HAL_SPI_Transmit(&hspi1, data, sizeof(data), 1000);
+    CS_HIGH();
+
+    const nRF24_Operation_Status w_op_status = {
+      HAL_Result,
+      mask
+    };
+    return w_op_status;
+  }
+
+  const nRF24_Operation_Status status = {
+    HAL_ERROR, 0
   };
   return status;
 }
