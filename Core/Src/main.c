@@ -45,6 +45,14 @@ typedef struct {
   HAL_StatusTypeDef hal_status;
   uint8_t operation_result;
 } nRF24_Operation_Status;
+
+typedef struct {
+  uint8_t Rx_dr;
+  uint8_t Tx_ds;
+  uint8_t Max_rt;
+  uint8_t Rx_pipe;
+  uint8_t Tx_full;
+} nRF24_StatusTypeDef;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -68,6 +76,7 @@ nRF24_Operation_Status write_to_reg(uint8_t addr, uint8_t byte);
 nRF24_Operation_Status read_reg(uint8_t reg);
 void init_config();
 nRF24_Operation_Status read_and_modify(uint8_t reg, uint8_t mask, uint8_t value);
+nRF24_StatusTypeDef process_status(uint8_t reg);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -129,6 +138,17 @@ nRF24_Operation_Status read_and_modify(const uint8_t reg, const uint8_t mask, co
     return write_op_status;
   }
   return read_op_status;
+}
+
+nRF24_StatusTypeDef process_status(const uint8_t reg) {
+  const nRF24_StatusTypeDef status = {
+    (reg >> 6) & 0x01,
+    (reg >> 5) & 0x01,
+    (reg >> 4) & 0x01,
+    (reg >> 1) & 0x07,
+    (reg >> 0) & 0x01,
+  };
+  return status;
 }
 
 void init_config() {
