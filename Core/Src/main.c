@@ -37,6 +37,7 @@
 
 #define W_REGISTER 0x20
 #define R_REGISTER 0X00
+#define FLUSH_TX_REGISTER 0xE1
 #define STATUS_REGISTER 0x07
 /* USER CODE END PTD */
 
@@ -76,9 +77,13 @@ static void MX_SPI1_Init(void);
 nRF24_Operation_Status write_to_reg(uint8_t addr, uint8_t byte);
 nRF24_Operation_Status read_reg(uint8_t reg);
 void init_config();
+void init_TX();
+void init_RX();
+nRF24_Operation_Status flush_TX();
 nRF24_Operation_Status read_and_modify(uint8_t reg, uint8_t mask, uint8_t value);
 nRF24_StatusTypeDef process_status(uint8_t reg);
 nRF24_Operation_Status clear_status(uint8_t mask);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -99,6 +104,27 @@ nRF24_Operation_Status write_to_reg(const uint8_t addr, const uint8_t byte) {
 
   const nRF24_Operation_Status status = {
     HAL_Result, byte
+  };
+
+  return status;
+}
+
+nRF24_Operation_Status flush_TX() {
+  if (HAL_GPIO_ReadPin(SPI1_CE_GPIO_Port, SPI1_CE_Pin) == 1) {
+    // Add debug log
+    const nRF24_Operation_Status status = {
+      HAL_ERROR, 0
+    };
+    return status;
+  }
+
+  const uint8_t data[2] = {(FLUSH_TX_REGISTER |  0x1F), 0x00};
+  CS_LOW();
+  const HAL_StatusTypeDef HAL_Result = HAL_SPI_Transmit(&hspi1, data, sizeof(data), 1000);
+  CS_HIGH();
+
+  const nRF24_Operation_Status status = {
+    HAL_Result, 0x00
   };
 
   return status;
@@ -175,8 +201,28 @@ nRF24_Operation_Status clear_status(const uint8_t mask) {
   return status;
 }
 
-void init_config() {
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
   
+}
+
+void init_config() {
+  CE_LOW();
+  CS_HIGH();
+  init_TX();
+}
+
+void init_TX() {
+  nRF24_Operation_Status CONFIG_status = write_to_reg(0x00, 0x0A);
+  HAL_Delay(2);
+  nRF24_Operation_Status RF_CH_status = write_to_reg(0x05, 0x22);
+  nRF24_Operation_Status RF_SETUP_status = write_to_reg(0x06, 0x0F);
+  nRF24_Operation_Status PETR_status = write_to_reg(0x06, 0x21);
+  nRF24_Operation_Status EN_AA_status = write_to_reg(0x01, 0x01);
+  nRF24_Operation_Status EN_RXADDR_status = write_to_reg(0x02, 0x01);
+  nRF24_Operation_Status TX_ADDR_status = write_to_reg(0x10, 0xB3B4B5B605);
+  nRF24_Operation_Status RX_ADDR_P0_status = write_to_reg(0x0A, 0xB3B4B5B605);
+  nRF24_Operation_Status FLUSH_TX_status = flush_TX();
+  nRF24_Operation_Status c_status = clear_status(0x70);
 }
 /* USER CODE END 0 */
 
@@ -211,6 +257,19 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
+  HAL_Delay(50); // Даємо час модулю прокинутись
+
+  // Simple test
+  // CE_LOW();
+  // CS_HIGH();
+  // HAL_Delay(10);
+  // nRF24_Operation_Status c_status = clear_status(0x70);
+  // nRF24_Operation_Status read_status1 = read_reg(0x05);  //0x10
+  // nRF24_Operation_Status write_status = write_to_reg(0x05, 0x22);
+  // HAL_Delay(5);
+  // nRF24_Operation_Status read_status2 = read_reg(0x05);  //0x22
+
+
 
   /* USER CODE END 2 */
 
@@ -289,7 +348,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -318,6 +377,7 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, TX_BTN_Pin|SPI1_CS_Pin|SPI1_CE_Pin, GPIO_PIN_RESET);
@@ -335,6 +395,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
