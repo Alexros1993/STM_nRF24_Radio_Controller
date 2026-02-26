@@ -19,6 +19,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 
+#include <string.h>
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -38,6 +40,7 @@
 #define W_REGISTER 0x20
 #define R_REGISTER 0X00
 #define FLUSH_TX_REGISTER 0xE1
+#define FLUSH_RX_REGISTER 0xE2
 #define STATUS_REGISTER 0x07
 /* USER CODE END PTD */
 
@@ -66,6 +69,9 @@ typedef struct {
 SPI_HandleTypeDef hspi1;
 
 /* USER CODE BEGIN PV */
+static const nRF24_Operation_Status nRF24_error_status = {
+  HAL_ERROR, 0
+};
 
 /* USER CODE END PV */
 
@@ -80,14 +86,46 @@ void init_config();
 void init_TX();
 void init_RX();
 nRF24_Operation_Status flush_TX();
+nRF24_Operation_Status flush_RX();
 nRF24_Operation_Status read_and_modify(uint8_t reg, uint8_t mask, uint8_t value);
 nRF24_StatusTypeDef process_status(uint8_t reg);
 nRF24_Operation_Status clear_status(uint8_t mask);
+nRF24_Operation_Status write_multi_register(uint8_t addr, const uint8_t *bytes, uint16_t size);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+nRF24_Operation_Status write_multi_register(const uint8_t addr, const uint8_t *bytes, const uint16_t size) {
+
+  if (HAL_GPIO_ReadPin(SPI1_CE_GPIO_Port, SPI1_CE_Pin) == GPIO_PIN_SET) {
+    return nRF24_error_status;
+  }
+
+  if (bytes == NULL || size == 0) {
+    return nRF24_error_status;
+  }
+
+  HAL_StatusTypeDef HAL_result;
+  const uint8_t write_command = (W_REGISTER | (addr & 0x1F));
+
+  CS_LOW();
+  const HAL_StatusTypeDef HAL_Command_Result = HAL_SPI_Transmit(&hspi1, &write_command, sizeof(write_command), 1000);
+  if (HAL_Command_Result == HAL_OK) {
+    const HAL_StatusTypeDef HAL_Bytes_Result = HAL_SPI_Transmit(&hspi1, bytes, size, 1000);
+    HAL_result = HAL_Bytes_Result == HAL_OK ? HAL_OK : HAL_ERROR;
+  } else {
+    HAL_result = HAL_ERROR;
+  }
+  CS_HIGH();
+
+  const nRF24_Operation_Status status = {
+    HAL_result, addr
+  };
+  return status;
+}
+
 nRF24_Operation_Status write_to_reg(const uint8_t addr, const uint8_t byte) {
   if (HAL_GPIO_ReadPin(SPI1_CE_GPIO_Port, SPI1_CE_Pin) == 1) {
     // Add debug log
@@ -118,9 +156,30 @@ nRF24_Operation_Status flush_TX() {
     return status;
   }
 
-  const uint8_t data[2] = {(FLUSH_TX_REGISTER |  0x1F), 0x00};
+  const uint8_t flush_reg = FLUSH_TX_REGISTER;
   CS_LOW();
-  const HAL_StatusTypeDef HAL_Result = HAL_SPI_Transmit(&hspi1, data, sizeof(data), 1000);
+  const HAL_StatusTypeDef HAL_Result = HAL_SPI_Transmit(&hspi1, &flush_reg, sizeof(flush_reg), 1000);
+  CS_HIGH();
+
+  const nRF24_Operation_Status status = {
+    HAL_Result, 0x00
+  };
+
+  return status;
+}
+
+nRF24_Operation_Status flush_RX() {
+  if (HAL_GPIO_ReadPin(SPI1_CE_GPIO_Port, SPI1_CE_Pin) == 1) {
+    // Add debug log
+    const nRF24_Operation_Status status = {
+      HAL_ERROR, 0
+    };
+    return status;
+  }
+
+  const uint8_t flush_reg = FLUSH_RX_REGISTER;
+  CS_LOW();
+  const HAL_StatusTypeDef HAL_Result = HAL_SPI_Transmit(&hspi1, &flush_reg, sizeof(flush_reg), 1000);
   CS_HIGH();
 
   const nRF24_Operation_Status status = {
@@ -202,7 +261,7 @@ nRF24_Operation_Status clear_status(const uint8_t mask) {
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-  
+
 }
 
 void init_config() {
@@ -212,16 +271,19 @@ void init_config() {
 }
 
 void init_TX() {
+  const uint8_t address[5] = {0x05, 0xB6, 0xB5, 0xB4, 0xB3};
   nRF24_Operation_Status CONFIG_status = write_to_reg(0x00, 0x0A);
   HAL_Delay(2);
   nRF24_Operation_Status RF_CH_status = write_to_reg(0x05, 0x22);
-  nRF24_Operation_Status RF_SETUP_status = write_to_reg(0x06, 0x0F);
-  nRF24_Operation_Status PETR_status = write_to_reg(0x06, 0x21);
+  nRF24_Operation_Status RF_SETUP_status = write_to_reg(0x06, 0x4E);
+  nRF24_Operation_Status PETR_status = write_to_reg(0x04, 0x21);
   nRF24_Operation_Status EN_AA_status = write_to_reg(0x01, 0x01);
   nRF24_Operation_Status EN_RXADDR_status = write_to_reg(0x02, 0x01);
-  nRF24_Operation_Status TX_ADDR_status = write_to_reg(0x10, 0xB3B4B5B605);
-  nRF24_Operation_Status RX_ADDR_P0_status = write_to_reg(0x0A, 0xB3B4B5B605);
+
+  nRF24_Operation_Status TX_ADDR_status = write_multi_register(0x10, address, sizeof(address));
+  nRF24_Operation_Status RX_ADDR_P0_status = write_multi_register(0x0A, address, sizeof(address));
   nRF24_Operation_Status FLUSH_TX_status = flush_TX();
+  nRF24_Operation_Status FLUSH_RX_status = flush_RX();
   nRF24_Operation_Status c_status = clear_status(0x70);
 }
 /* USER CODE END 0 */
