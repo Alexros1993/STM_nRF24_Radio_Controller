@@ -19,8 +19,6 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 
-#include <string.h>
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -51,6 +49,13 @@ typedef struct {
   uint8_t operation_result;
 } nRF24_Operation_Status;
 
+typedef enum  {
+  NRF24_STATE_OK,
+  NRF24_STATE_INIT_ERROR,
+  NRF24_STATE_SPI_ERROR,
+  NRF24_STATE_CONFIG_MISMATCH
+} nRF24_State;
+
 typedef struct {
   uint8_t Rx_dr;
   uint8_t Tx_ds;
@@ -58,6 +63,15 @@ typedef struct {
   uint8_t Rx_pipe;
   uint8_t Tx_full;
 } nRF24_StatusTypeDef;
+
+typedef struct {
+  nRF24_Operation_Status Config;
+  nRF24_Operation_Status RF_Setup;
+  nRF24_Operation_Status RF_CH;
+  nRF24_Operation_Status Setup_RETR;
+  nRF24_Operation_Status EN_AA;
+  nRF24_Operation_Status EN_RXADDR;
+} nRF24_InitStatusTypeDef;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -82,8 +96,8 @@ static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
 nRF24_Operation_Status write_to_reg(uint8_t addr, uint8_t byte);
 nRF24_Operation_Status read_reg(uint8_t reg);
-void init_config();
-void init_TX();
+nRF24_State init_config();
+nRF24_State init_TX();
 void init_RX();
 nRF24_Operation_Status flush_TX();
 nRF24_Operation_Status flush_RX();
@@ -190,12 +204,8 @@ nRF24_Operation_Status flush_RX() {
 }
 
 nRF24_Operation_Status read_reg(const uint8_t reg) {
-  if (HAL_GPIO_ReadPin(SPI1_CE_GPIO_Port, SPI1_CE_Pin) == 1) {
-    // Add debug log
-    const nRF24_Operation_Status status = {
-      HAL_ERROR, 0
-    };
-    return status;
+  if (HAL_GPIO_ReadPin(SPI1_CE_GPIO_Port, SPI1_CE_Pin) == GPIO_PIN_SET) {
+    return nRF24_error_status;
   }
   uint8_t  received_reg_data[2];
   const uint8_t reading_reg = (R_REGISTER | (reg & 0x1F));
@@ -204,8 +214,13 @@ nRF24_Operation_Status read_reg(const uint8_t reg) {
   const HAL_StatusTypeDef HAL_status = HAL_SPI_TransmitReceive(&hspi1, sending_data, received_reg_data, sizeof(sending_data), 1000);
   CS_HIGH();
 
+  uint8_t value = 0;
+
+  if (HAL_status == HAL_OK)
+    value = received_reg_data[1];
+
   const nRF24_Operation_Status op_status = {
-    HAL_status, received_reg_data[1]
+    HAL_status, value
   };
 
   return  op_status;
@@ -264,27 +279,76 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 }
 
-void init_config() {
+nRF24_State init_TX() {
+  const uint8_t address[5] = {0x05, 0xB6, 0xB5, 0xB4, 0xB3};
+
   CE_LOW();
   CS_HIGH();
-  init_TX();
-}
 
-void init_TX() {
-  const uint8_t address[5] = {0x05, 0xB6, 0xB5, 0xB4, 0xB3};
-  nRF24_Operation_Status CONFIG_status = write_to_reg(0x00, 0x0A);
+  write_to_reg(0x00, 0x0A);
+
+  if (write_to_reg(0x05, 0x22).hal_status != HAL_OK) {
+    return NRF24_STATE_SPI_ERROR;
+  }
+
   HAL_Delay(2);
-  nRF24_Operation_Status RF_CH_status = write_to_reg(0x05, 0x22);
-  nRF24_Operation_Status RF_SETUP_status = write_to_reg(0x06, 0x4E);
-  nRF24_Operation_Status PETR_status = write_to_reg(0x04, 0x21);
-  nRF24_Operation_Status EN_AA_status = write_to_reg(0x01, 0x01);
-  nRF24_Operation_Status EN_RXADDR_status = write_to_reg(0x02, 0x01);
 
-  nRF24_Operation_Status TX_ADDR_status = write_multi_register(0x10, address, sizeof(address));
-  nRF24_Operation_Status RX_ADDR_P0_status = write_multi_register(0x0A, address, sizeof(address));
-  nRF24_Operation_Status FLUSH_TX_status = flush_TX();
-  nRF24_Operation_Status FLUSH_RX_status = flush_RX();
-  nRF24_Operation_Status c_status = clear_status(0x70);
+  if (write_to_reg(0x05, 0x22).hal_status != HAL_OK)
+    return NRF24_STATE_SPI_ERROR;
+
+  if (write_to_reg(0x06, 0x4E).hal_status != HAL_OK)
+    return NRF24_STATE_SPI_ERROR;
+
+  if (write_to_reg(0x04, 0x21).hal_status != HAL_OK)
+    return NRF24_STATE_SPI_ERROR;
+
+  if (write_to_reg(0x01, 0x01).hal_status != HAL_OK)
+    return NRF24_STATE_SPI_ERROR;
+
+  if (write_to_reg(0x02, 0x01).hal_status != HAL_OK)
+    return NRF24_STATE_SPI_ERROR;
+
+  if (write_multi_register(0x10, address, sizeof(address)).hal_status != HAL_OK)
+    return NRF24_STATE_SPI_ERROR;
+
+  if (write_multi_register(0x0A, address, sizeof(address)).hal_status != HAL_OK)
+    return NRF24_STATE_SPI_ERROR;
+
+  if (flush_TX().hal_status != HAL_OK)
+    return NRF24_STATE_SPI_ERROR;
+
+  if (flush_RX().hal_status != HAL_OK)
+    return NRF24_STATE_SPI_ERROR;
+
+  if (clear_status(0x70).hal_status != HAL_OK)
+    return NRF24_STATE_SPI_ERROR;
+
+
+  nRF24_Operation_Status r = read_reg(0x00);
+  if (r.hal_status != HAL_OK || (r.operation_result & 0x0F) != (0x0A & 0x0F))
+    return NRF24_STATE_CONFIG_MISMATCH;
+
+  r = read_reg(0x06);
+  if (r.hal_status != HAL_OK || r.operation_result != 0x4E)
+    return NRF24_STATE_CONFIG_MISMATCH;
+
+  r = read_reg(0x05);
+  if (r.hal_status != HAL_OK || r.operation_result != 0x22)
+    return NRF24_STATE_CONFIG_MISMATCH;
+
+  r = read_reg(0x04);
+  if (r.hal_status != HAL_OK || r.operation_result != 0x21)
+    return NRF24_STATE_CONFIG_MISMATCH;
+
+  r = read_reg(0x01);
+  if (r.hal_status != HAL_OK || r.operation_result != 0x01)
+    return NRF24_STATE_CONFIG_MISMATCH;
+
+  r = read_reg(0x02);
+  if (r.hal_status != HAL_OK || r.operation_result != 0x01)
+    return NRF24_STATE_CONFIG_MISMATCH;
+
+  return NRF24_STATE_OK;
 }
 /* USER CODE END 0 */
 
@@ -319,6 +383,13 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
+  const nRF24_State init_state = init_TX();
+
+  if (init_state != NRF24_STATE_OK) {
+    HAL_GPIO_WritePin(Blue_Diod_GPIO_Port, Blue_Diod_Pin, GPIO_PIN_SET);
+    while(1);
+  }
+
   HAL_Delay(50); // Даємо час модулю прокинутись
 
   // Simple test
@@ -438,11 +509,22 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(Blue_Diod_GPIO_Port, Blue_Diod_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, TX_BTN_Pin|SPI1_CS_Pin|SPI1_CE_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : Blue_Diod_Pin */
+  GPIO_InitStruct.Pin = Blue_Diod_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(Blue_Diod_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : TX_BTN_Pin */
   GPIO_InitStruct.Pin = TX_BTN_Pin;

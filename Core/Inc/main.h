@@ -57,6 +57,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define Blue_Diod_Pin GPIO_PIN_13
+#define Blue_Diod_GPIO_Port GPIOC
 #define TX_BTN_Pin GPIO_PIN_2
 #define TX_BTN_GPIO_Port GPIOA
 #define SPI1_CS_Pin GPIO_PIN_3
